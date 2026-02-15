@@ -15,6 +15,7 @@ import routerProvider, {
 
 import { LoginPage } from "./pages/login";
 import { DashboardLayout } from "./pages/dashboard";
+import { UsersList, UsersCreate, UsersEdit, UsersShow } from "./pages/users";
 
 import "./index.css";
 import { dataProvider } from "./providers/data";
@@ -32,12 +33,22 @@ function App() {
               routerProvider={routerProvider}
               dataProvider={dataProvider}
               authProvider={authProvider}
-              resources={[
-                {
-                  name: "dashboard",
-                  list: "/",
-                },
-              ]}
+              resources={[{
+                name: "dashboard",
+                list: "/",
+              }, {
+                name: "users",
+                list: "/users",
+                create: "/users/create",
+                edit: "/users/edit/:id",
+                show: "/users/show/:id"
+              }, {
+                name: "practices",
+                list: "/practices",
+                create: "/practices/create",
+                edit: "/practices/edit/:id",
+                show: "/practices/show/:id"
+              }]}
               options={{
                 syncWithLocation: true,
                 warnWhenUnsavedChanges: true,
@@ -75,6 +86,12 @@ function App() {
                       <NavigateToResource resource="dashboard" />
                     }
                   />
+                  <Route path="/users">
+                    <Route index element={<UsersList />} />
+                    <Route path="create" element={<UsersCreate />} />
+                    <Route path="edit/:id" element={<UsersEdit />} />
+                    <Route path="show/:id" element={<UsersShow />} />
+                  </Route>
                 </Route>
 
                 {/* Catch-all */}
