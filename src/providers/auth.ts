@@ -1,15 +1,115 @@
-import { AuthProvider } from "@refinedev/core";
+import type { AuthProvider } from "@refinedev/core";
 import { API_URL } from "./constants";
 import { kyInstance } from "./data";
 
-let sessionPromise: Promise<any> | null = null;
-let cachedSession: any = null;
+type DashboardUser = {
+  id: string;
+  name?: string | null;
+  image?: string | null;
+  email?: string | null;
+};
+
+type DashboardSession = {
+  user?: DashboardUser | null;
+} | null;
+
+type DashboardSessionEnvelope = {
+  data?: DashboardSession;
+  session?: DashboardSession;
+  user?: DashboardUser | null;
+};
+
+let sessionPromise: Promise<DashboardSession> | null = null;
+let cachedSession: DashboardSession = null;
 let lastFetchTime = 0;
 const CACHE_TTL = 5000; // 5 seconds
 
-const SESSION_KEY = "auth_session";
+const SESSION_KEY = "dashboard_session";
 
-const getSession = async () => {
+const clearSessionCache = () => {
+  cachedSession = null;
+  sessionPromise = null;
+  lastFetchTime = 0;
+  localStorage.removeItem(SESSION_KEY);
+};
+
+const signOutSilently = async () => {
+  try {
+    await kyInstance.post("auth/sign-out");
+  } catch {
+    // Ignore logout error
+  } finally {
+    clearSessionCache();
+  }
+};
+
+const isDashboardSession = (value: unknown): value is DashboardSession => {
+  if (value === null || typeof value !== "object") {
+    return value === null;
+  }
+
+  return "user" in value;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null;
+};
+
+const getErrorStatus = (error: unknown) => {
+  if (!isRecord(error)) {
+    return undefined;
+  }
+
+  const response = error.response;
+  if (isRecord(response) && typeof response.status === "number") {
+    return response.status;
+  }
+
+  return typeof error.status === "number" ? error.status : undefined;
+};
+
+const toDashboardSession = (value: unknown): DashboardSession => {
+  if (isDashboardSession(value)) {
+    return value;
+  }
+
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const envelope: DashboardSessionEnvelope = value;
+
+  if (isDashboardSession(envelope.data)) {
+    return envelope.data;
+  }
+
+  if (isDashboardSession(envelope.session)) {
+    return envelope.session;
+  }
+
+  if (envelope.user) {
+    return { user: envelope.user };
+  }
+
+  return null;
+};
+
+const getStoredSession = () => {
+  const stored = localStorage.getItem(SESSION_KEY);
+  if (!stored) {
+    return null;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    return isDashboardSession(parsed) ? parsed : null;
+  } catch {
+    localStorage.removeItem(SESSION_KEY);
+    return null;
+  }
+};
+
+const getDashboardSession = async (): Promise<DashboardSession> => {
   const now = Date.now();
   if (cachedSession && now - lastFetchTime < CACHE_TTL) {
     return cachedSession;
@@ -21,22 +121,19 @@ const getSession = async () => {
 
   // Try to recover from localStorage if cache is empty (e.g. after HMR)
   if (!cachedSession) {
-    const stored = localStorage.getItem(SESSION_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        // Optional: Add expiration check here if session has an 'exp' field
-        cachedSession = parsed;
-      } catch {
-        localStorage.removeItem(SESSION_KEY);
-      }
-    }
+    cachedSession = getStoredSession();
   }
 
   sessionPromise = kyInstance
-    .get("auth/get-session")
-    .json<any>()
-    .then((session) => {
+    .get("ops/session")
+    .json<unknown>()
+    .then((response) => {
+      const session = toDashboardSession(response);
+
+      if (!session?.user) {
+        throw new Error("Dashboard session response did not include a user.");
+      }
+
       cachedSession = session;
       lastFetchTime = Date.now();
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
@@ -44,118 +141,112 @@ const getSession = async () => {
       return session;
     })
     .catch((error) => {
-      console.error("getSession error:", error);
-      // If API fails, try to return cached/stored session if available, 
-      // but otherwise throw to trigger logout.
-      // For HMR stability, if we have a stored session, we might want to return it 
-      // even if the verification fails momentarily, but that's risky.
-      // Better to rely on the localStorage recovery above to set cachedSession BEFORE the promise.
-
       cachedSession = null;
       sessionPromise = null;
-      // Remove from storage only on definitiveauth failure (401/403), handled in onError. 
-      // But if getSession fails generally (e.g. network), do we logout?
-      // The original code throws, triggering check() -> false.
       throw error;
     });
 
   return sessionPromise;
 };
 
+const getDashboardAccessErrorMessage = (error: unknown) => {
+  const status = getErrorStatus(error);
+
+  if (status === 403) {
+    return "This account does not have dashboard access.";
+  }
+
+  if (status === 401) {
+    return "Invalid email or password.";
+  }
+
+  return "Dashboard access could not be verified.";
+};
+
 export const authProvider: AuthProvider = {
   login: async ({ email, password, providerName }) => {
     // Clear cache on login attempt
-    cachedSession = null;
-    lastFetchTime = 0;
+    clearSessionCache();
 
     if (providerName) {
       // Social login redirection
-      window.location.href = `${API_URL}/auth/signin/${providerName}?callbackURL=${window.location.origin}`;
+      const searchParams = new URLSearchParams({
+        provider: providerName,
+        callbackURL: window.location.origin,
+      });
+      window.location.href = `${API_URL}/auth/sign-in/social?${searchParams}`;
       return {
         success: true,
       };
     }
 
     try {
-      const response = await kyInstance.post("auth/sign-in/email", {
+      await kyInstance.post("auth/dashboard/sign-in/email", {
         json: { email, password },
       });
-
-      if (response.ok) {
-        return {
-          success: true,
-          redirectTo: "/",
-        };
-      }
-    } catch {
+    } catch (error) {
       return {
         success: false,
         error: {
           name: "LoginError",
-          message: "Invalid email or password",
+          message: getDashboardAccessErrorMessage(error),
         },
       };
     }
 
-    return {
-      success: false,
-    };
+    try {
+      await getDashboardSession();
+
+      return {
+        success: true,
+        redirectTo: "/",
+      };
+    } catch (error) {
+      await signOutSilently();
+
+      return {
+        success: false,
+        error: {
+          name: "AccessDenied",
+          message: getDashboardAccessErrorMessage(error),
+        },
+      };
+    }
   },
   logout: async () => {
-    cachedSession = null;
-    lastFetchTime = 0;
-    try {
-      await kyInstance.post("auth/sign-out");
-    } catch {
-      // Ignore logout error
-    }
+    await signOutSilently();
     return {
       success: true,
       redirectTo: "/login",
     };
   },
   onError: async (error) => {
-    if (error.status === 401 || error.status === 403) {
-      cachedSession = null;
-      lastFetchTime = 0;
-      return {
-        logout: true,
-        redirectTo: "/login",
-      };
-    }
-
     return { error };
   },
   check: async () => {
     try {
-      const session = await getSession();
-      if (session && session.user && session.user.role === "admin") {
-        return {
-          authenticated: true,
-        };
-      }
+      await getDashboardSession();
+      return {
+        authenticated: true,
+      };
     } catch {
       return {
         authenticated: false,
         redirectTo: "/login",
       };
     }
-
-    return {
-      authenticated: false,
-      redirectTo: "/login",
-    };
   },
   getPermissions: async () => null,
   getIdentity: async () => {
     try {
-      const session = await getSession();
-      if (session && session.user && session.user.role === "admin") {
+      const session = await getDashboardSession();
+      const user = session?.user;
+      if (user) {
         return {
-          id: session.user.id,
-          name: session.user.name,
-          avatar: session.user.image,
-          role: session.user.role,
+          id: user.id,
+          name: user.name,
+          avatar: user.image,
+          email: user.email,
         };
       }
     } catch {
