@@ -1,0 +1,410 @@
+---
+title: Ops Console — Per-Practice Email Viewer (Phase 1)
+type: feat
+status: active
+date: 2026-07-06
+origin: docs/brainstorms/2026-07-06-ops-console-email-viewer-requirements.md
+---
+
+# Ops Console — Per-Practice Email Viewer (Phase 1)
+
+**Target repos:** This plan spans two repositories.
+- **Backend:** `blawby-ts` (Hono + Drizzle/Postgres + Better Auth) — all backend file paths below are relative to that repo's root.
+- **Frontend:** `blawby-dashboard` (Vite + React + Refine) — all frontend file paths below are relative to that repo's root, which is also this plan document's home.
+
+## Summary
+
+Add a new role-gated `/api/ops/*` route group to `blawby-ts` that surfaces the existing `email_logs` table through list and detail endpoints, and a new Emails view (global + per-practice) in `blawby-dashboard` that lets a `super_admin` search, filter, preview, and copy links from any email the platform has sent. The backend gets a migration adding `practice_id` to `email_logs`, a new `super_admin` role, a new `skipped` status value, and a handful of send-callsite edits so practice context and test-domain sends are captured. The dashboard gets two new list views built on Refine's existing data-provider pattern plus an updated auth provider.
+
+---
+
+## Problem Frame
+
+Staging does not deliver real email, so testers and support have no way to retrieve password-reset, invite, or magic-link URLs without direct database access. `blawby-ts` already logs every email attempt to `email_logs`, but nothing exposes that table to non-engineers, and the table itself is missing practice attribution and consistent status tracking for skipped sends. (Full problem framing in origin — see Sources & References.)
+
+---
+
+## Requirements
+
+- R1. New `super_admin` Better Auth role, distinct from `admin` and practice-level roles.
+- R2. All `/api/ops/*` endpoints require `role === "super_admin"`, enforced server-side.
+- R3. Super admin can access all practices, not just ones they belong to.
+- R4. New protected route group `/api/ops/*`.
+- R5. List endpoint: emails for a practice from `email_logs` — recipient, subject, template, status (`sent`/`failed`/`skipped`), error message, timestamp.
+- R6. Detail endpoint: re-rendered HTML + extracted actionable link(s); labeled as a best-effort reconstruction; handles unknown templates and anonymized rows gracefully.
+- R7. `email_logs` gains `practice_id`; unattributable emails land in a "no practice" bucket.
+- R8. Read-only phase 1 — no resend, no fresh token generation.
+- R9. Practice detail view gains an Emails tab (list + search/status filter + preview + copy-link).
+- R10. Dashboard auth provider accepts `super_admin` (currently only `admin`).
+- R11. Staging-first rollout; prod content/link endpoints deferred until R12/R13 land.
+- R12. Prod prerequisite: 2FA for super admins.
+- R13. Prod prerequisite: audit log on every content/link view.
+- R14. `super_admin` granted only via deliberate manual action; every grant/revocation recorded.
+- R15. Test-domain (`@test-blawby.com`) sends are logged with a `skipped` status, never `sent`.
+- R16. Account-level emails attributed to a practice only when the recipient has exactly one membership; otherwise unattributed.
+- R17. Global Emails view: all emails incl. unattributed, with recipient/status/practice search+filter; practice tab is the same list pre-filtered.
+
+**Origin actors:** A1 (super admin), A2 (tester), A3 (backend/blawby-ts), A4 (dashboard/blawby-dashboard)
+**Origin flows:** F1 (tester retrieves staging link), F2 (support unblocks prod user — later rollout)
+**Origin acceptance examples:** AE1 (covers R2), AE2 (covers R5, R6, R9, R16), AE3 (covers R7), AE4 (covers R8), AE5 (covers R11), AE6 (covers R15), AE7 (covers R16, R17), AE8 (covers R15), AE9 (covers R16, R17)
+
+---
+
+## Scope Boundaries
+
+- No resending emails or generating fresh links (R8) — later phase.
+- No production exposure of content/link endpoints until R12/R13 land (R11).
+- No generic Nova-style resource-builder UI — long-term direction, not this slice.
+- No changes to when/whether emails actually send per environment, beyond the R15 logging fix.
+- No new backend service, no new database.
+
+### Deferred to Follow-Up Work
+
+- 2FA mechanism (R12) and audit-log implementation (R13): both are named prerequisites for production rollout but are not built in this plan. This plan implements the staging-ready feature; a follow-up plan covers R12/R13 and flips on production access.
+- Backfilling `practice_id` for pre-existing `email_logs` rows: this plan populates `practice_id` going forward only (per origin's adversarial-review finding); a backfill is optional follow-up work, not required for phase 1's success criteria.
+
+---
+
+## Context & Research
+
+### Relevant Code and Patterns
+
+**Backend (`blawby-ts`):**
+- Module structure: every module lives at `src/modules/<name>/http.ts` and is auto-registered via `src/shared/router/modules.generated.ts` (generated by `scripts/codegen.ts`, mounted through `registerModuleRoutes` in `src/shared/router/module-router.ts`). A new `src/modules/ops/http.ts` exporting a default Hono app + `mountPath` follows this exact convention — no manual route wiring needed beyond running codegen.
+- Auth middleware: `src/shared/middleware/requireAuth.ts` sets `session`, `user`, `userId`, `activeOrganizationId` on the Hono context from Better Auth's session. **Critical finding (see Institutional Learnings):** existing org-scoped middleware (`requireOrgMembership.ts`) gates on `activeOrganizationId`, which is a session-selection pointer, not a membership signal, and is frequently `null`. A super admin browsing an arbitrary practice's emails will not have that practice active in their session. `/api/ops/*` must use its own middleware that checks `user.role === "super_admin"` only — never `activeOrganizationId` — matching the pattern in `requireAuth.ts` but adding a role check, not reusing `requireOrgMembership.ts`.
+- Better Auth config: `src/shared/auth/better-auth.ts` uses the `admin()` plugin with default options (no `adminRoles` override currently visible), plus `organization()`, `magicLink()`, `anonymous()`, `jwt()`, `oauthProvider()`. Role storage and whether `admin()`'s default `adminRoles: ['admin']` needs an explicit `super_admin` addition is a planning-time-resolved-but-verify-in-code item (see Key Technical Decisions).
+- Email pipeline: `src/shared/services/email/email.service.ts` — `sendEmail()` is the single choke point; every send (Resend or skipped) already funnels through it and inserts into `email_logs` via fire-and-forget `db.insert(emailLogs)...catch(...)`. The `@test-blawby.com` early return (around line 101-106) returns before that insert — this is the exact gap R15 closes.
+- Email queue: `src/shared/queue/queue.manager.ts` — `addEmailJob(template: string, to: string, subject: string, data: Record<string, unknown>)` has no practice/organization parameter today (compare to `queueManager`'s other job types like the metered-billing job, which do carry `organizationId`). Callsites that need practice attribution (R7/R16) call this function or `sendEmail` directly — full callsite enumeration is a planning-time-resolved item below, with exact editing deferred to implementation per file.
+- Auth callback callsites for account-level email: Better Auth plugin config (`better-auth.ts`) wires `sendResetPassword`, `sendVerificationEmail`, and the `magicLink` plugin's `sendMagicLink` callback — these callbacks receive `{ user, url }` from Better Auth, not practice context directly; R16's "exactly one practice membership" lookup must be done inside these callbacks via a membership query, not assumed to be already available.
+- `email_logs` schema: `src/shared/services/email/schemas/email-logs.schema.ts` — Drizzle `pgTable`, currently `status: text('status', { enum: ['sent', 'failed'] })`. Adding `'skipped'` to this enum and adding a `practice_id` column both go through the standard Drizzle migration flow (`drizzle-kit`, schema at `src/shared/services/email/schemas/email-logs.schema.ts`, migrations output to `src/shared/database/migrations`, config at `drizzle.config.ts`).
+- Retention/anonymization: a documented daily cleanup task (see Institutional Learnings) sets `is_anonymized = true`, scrubs `recipient_email` and `template_data`, after 90 days (`expires_at`). `practice_id` is not PII and should survive anonymization — worth an explicit decision when writing the migration (see Key Technical Decisions).
+- Dev-only reference (not reused, but same domain): `src/modules/dev/http.ts` shows the existing local file-mailbox pattern (`guardDevelopmentOnly`, `EMAILS_DIR`) — useful only as a "don't repeat this" reference since it's disk-based and unusable on deployed staging (this is why the origin doc chose `email_logs` instead).
+
+**Frontend (`blawby-dashboard`):**
+- Data provider: `src/providers/data.ts` wraps `createSimpleRestDataProvider` from `@refinedev/rest/simple-rest` and already overrides `getList` for a custom resource shape (see the `users` special-case reading from `auth/list-users`) — the Emails resource follows this same override pattern rather than expecting REST-list conventions to match `/api/ops/emails` automatically.
+- Auth provider: `src/providers/auth.ts` gates both `check()` and `getIdentity()` on `session.user.role === "admin"` (lines ~132, ~153) — R10 requires extending both checks to accept `"super_admin"` as well (or a role-set check rather than strict equality).
+- Existing resource pages: `src/pages/practices/*` and `src/pages/users/*` are the pattern to mirror for a new practice detail Emails tab and a new top-level Emails resource page; `src/App.tsx` wires Refine's `resources` array and routing — a new `emails` resource entry goes here.
+- Existing UI primitives under `src/components/ui/` (shadcn-style) — table, tabs, sheet/dialog, button — cover list, tab-switching, and preview-modal needs without new dependencies.
+
+### Institutional Learnings
+
+- **Better Auth `active_organization_id` is a session pointer, not a membership signal** (`blawby-ai-chatbot/docs/solutions/conventions/better-auth-active-organization-id-pointer-2026-05-15.md`, high severity). Directly applicable: `/api/ops/*` auth middleware must check `user.role`, never `activeOrganizationId` or existing org-scoped middleware — see Key Technical Decisions and U2.
+- **`email_logs` retention/anonymization policy** (`blawby-ts/docs/EMAIL_LOG_RETENTION.md`) — confirms the 90-day `expires_at`/`is_anonymized`/`deleted_at` mechanics already noted in the origin doc's Dependencies section. Confirms R6's "handle anonymized rows gracefully" and R7's practice_id-survives-anonymization decision are both real, not speculative.
+- No `docs/solutions/` entries exist yet for Drizzle migrations, Hono module conventions, or Refine dashboard patterns in either `blawby-ts` or `blawby-dashboard` — this plan's implementer should consider capturing a learning after this ships, since it's the first ops-console feature in either repo.
+
+### External References
+
+None used — the origin doc and this plan's own repo research provide sufficient grounding without external best-practice research (mature, well-documented internal patterns for the stack already exist).
+
+---
+
+## Key Technical Decisions
+
+- **Ops auth middleware is new, not reused from `requireOrgMembership.ts`:** existing org-scoped middleware assumes `activeOrganizationId` reflects the practice being acted on, which the institutional-learnings finding shows is unsafe for a super admin acting across practices. A new `requireOpsAccess()` (or similarly named) middleware checks `user.role === "super_admin"` only.
+- **Practice attribution is send-time, not backfilled:** `practice_id` is populated going forward via callsite edits; pre-existing rows remain in the "no practice" bucket. Backfill is explicit follow-up work (Scope Boundaries), avoiding scope creep into historical data reconciliation.
+- **`skipped` is a first-class status value, not inferred from `messageId` string prefixes:** the existing dev-skip path already encodes skip reasons into `messageId` (e.g., `dev_preview`), which is not surfaced anywhere in the UI. Making `status` itself carry `sent | failed | skipped` (enum change) is the direct, queryable fix rather than parsing `messageId`.
+- **`practice_id` survives anonymization:** the retention job scrubs `recipient_email` and `template_data` but should NOT null out `practice_id`, since it's not PII and per-practice email counts remain useful past the 90-day PII window. This must be an explicit choice in both the migration and the retention job's column list, not an accidental side effect.
+- **Better Auth `admin()` plugin `adminRoles` may need explicit extension:** the current config uses `admin()` with no visible `adminRoles` override, implying the plugin's default (`['admin']`) is active. Whether `super_admin` needs to be added to `adminRoles`, or whether it's sufficient as an independent role value checked directly via `user.role`, is resolved in U1 by reading the `admin` plugin's actual behavior in this codebase version — flagged here because origin's Outstanding Questions carried this as "needs research."
+- **Email queue payload gains an optional `practiceId` field rather than a new job type:** mirrors the existing pattern where other job payloads (e.g., the metered-billing job) already carry an `organizationId` field. Extending `EmailJobPayload`/`addEmailJob`'s signature with an optional field is lower-risk than introducing a parallel queue path.
+
+---
+
+## Open Questions
+
+### Resolved During Planning
+
+- Where roles live in Better Auth config: confirmed `admin()` plugin is configured with no explicit `adminRoles` override in `src/shared/auth/better-auth.ts`; exact behavior (whether `super_admin` needs adding to `adminRoles` or works as a standalone role check) is a short verification task at the start of U1, not an open research question blocking the whole plan.
+- Full list of email send callsites: `sendEmail`/`addEmailJob` is the single choke point (`src/shared/services/email/email.service.ts`, `src/shared/queue/queue.manager.ts`); Better Auth's plugin callbacks (`sendResetPassword`, `sendVerificationEmail`, `magicLink`'s `sendMagicLink`) are the specific auth-flow callsites needing practice-context threading. Exact enumeration of every non-auth callsite (invites, receipts, etc.) is deferred to U3's implementation — see below.
+
+### Deferred to Implementation
+
+- Exact enumeration of every `addEmailJob`/`sendEmail` callsite that needs a `practiceId` argument added, beyond the auth-flow callbacks already identified: implementer should grep both call sites at U3 start and confirm each one either has practice context available locally or correctly falls into the "no practice" bucket.
+- Exact link-extraction strategy per template (per-template known field names vs. generic URL regex over rendered HTML) — origin flagged this as planning-deferred; U4 implementer should inspect `TemplateDataMap` for each link-bearing template before choosing.
+- 2FA mechanism and audit-log table shape (R12/R13) — explicitly out of this plan's scope (see Scope Boundaries); a follow-up plan will resolve Better Auth `twoFactor` plugin vs. Cloudflare Access, and whether an existing audit-log pattern exists to reuse in `blawby-ts`.
+
+---
+
+## Implementation Units
+
+### U1. Backend: `super_admin` role + ops auth middleware
+
+**Goal:** Establish the `super_admin` role and the auth middleware that gates all `/api/ops/*` routes on it, independent of organization/session-active-org state.
+
+**Requirements:** R1, R2, R3, R14
+
+**Dependencies:** None
+
+**Files:**
+- Modify: `src/shared/auth/better-auth.ts` (verify/extend `admin()` plugin config for `super_admin`)
+- Create: `src/shared/middleware/requireOpsAccess.ts`
+- Test: `src/shared/middleware/requireOpsAccess.test.ts`
+
+**Approach:**
+- Verify whether Better Auth's `admin()` plugin requires `super_admin` added to an `adminRoles` list, or whether any role string on `user.role` works with a direct equality check in custom middleware — resolve by reading the installed `better-auth` package's admin plugin source/types before writing code.
+- `requireOpsAccess()` middleware: run after `requireAuth()`, read `c.get('user').role`, 403 if not `"super_admin"`. Do not read or depend on `activeOrganizationId` (per Key Technical Decisions).
+- Role assignment (R14) is a manual DB/Better-Auth-admin-API action outside this codebase's runtime surface — document the grant procedure as a short comment or note in this middleware file rather than building a self-service UI (none is required by R14).
+
+**Patterns to follow:**
+- `src/shared/middleware/requireAuth.ts` for context-reading conventions and `HTTPException` usage.
+
+**Test scenarios:**
+- Happy path: request with `user.role === "super_admin"` and any (or no) `activeOrganizationId` passes through.
+- Error path: request with `user.role === "admin"` is rejected (403), regardless of organization membership. Covers AE1.
+- Error path: unauthenticated request is rejected before reaching this middleware (verify ordering with `requireAuth`).
+- Edge case: request with `activeOrganizationId: null` and `role === "super_admin"` still passes (proves the middleware doesn't depend on org context).
+
+**Verification:**
+- A super_admin user can call any `/api/ops/*`-mounted route regardless of which (or whether any) organization is active in their session; a non-super_admin user cannot, regardless of role or org.
+
+---
+
+### U2. Backend: `email_logs` migration — `practice_id` + `skipped` status
+
+**Goal:** Add practice attribution and a first-class `skipped` status to `email_logs` via a Drizzle migration.
+
+**Requirements:** R5, R7, R15
+
+**Dependencies:** None
+
+**Files:**
+- Modify: `src/shared/services/email/schemas/email-logs.schema.ts`
+- Create: migration file under `src/shared/database/migrations` (generated by `drizzle-kit generate`, not hand-written)
+- Test: `src/shared/services/email/schemas/email-logs.schema.test.ts` (or existing schema-adjacent test location if one exists)
+
+**Approach:**
+- Add `practice_id: text('practice_id')` (nullable — many rows will have no practice, per R7's "no practice" bucket), plus an index on `(practice_id)` for the list-by-practice query in U3.
+- Extend `status` enum from `['sent', 'failed']` to `['sent', 'failed', 'skipped']`.
+- Explicitly confirm the retention/anonymization job (referenced in Institutional Learnings) does not scrub `practice_id` on anonymize — read that job's column list and add `practice_id` to the "preserved on anonymize" set if it isn't already structurally excluded.
+
+**Patterns to follow:**
+- Existing Drizzle schema conventions in `email-logs.schema.ts` (column naming, index declarations, Zod schema generation via `createInsertSchema`/`createSelectSchema`).
+
+**Test scenarios:**
+- Happy path: inserting a row with `practice_id` set persists and round-trips correctly.
+- Happy path: inserting a row with `status: 'skipped'` persists (enum accepts the new value).
+- Edge case: inserting a row with `practice_id: null` (unattributed) is valid, not rejected.
+- Integration: run the anonymization job against a row with `practice_id` set; verify `practice_id` survives while `recipient_email`/`template_data` are scrubbed.
+
+**Verification:**
+- Migration applies cleanly against a representative dataset; existing rows default to `practice_id: null` without breaking any existing query against `email_logs`.
+
+---
+
+### U3. Backend: thread practice context through email send paths
+
+**Goal:** Populate `practice_id` at send time for practice-scoped emails, attribute account-level emails per R16's single-membership rule, and fix the `@test-blawby.com` logging gap with the new `skipped` status.
+
+**Requirements:** R7, R15, R16
+
+**Dependencies:** U2
+
+**Files:**
+- Modify: `src/shared/services/email/email.service.ts` (test-domain early return; accept optional `practiceId`/attribution context in `sendEmail`)
+- Modify: `src/shared/queue/queue.manager.ts` (`addEmailJob` signature — add optional `practiceId` parameter, mirroring the existing `organizationId` pattern used by other job types)
+- Modify: `src/shared/auth/better-auth.ts` (the `sendResetPassword`, `sendVerificationEmail`, and `magicLink.sendMagicLink` callbacks — add a practice-membership lookup for R16 attribution)
+- Modify: other `addEmailJob`/`sendEmail` callsites with practice context readily available (enumerate via grep at implementation start — see Open Questions)
+- Test: `src/shared/services/email/email.service.test.ts`, plus targeted tests for the Better Auth callback changes
+
+**Approach:**
+- Test-domain fix: move (or duplicate) the `email_logs` insert so it runs before the `@test-blawby.com` early return, with `status: 'skipped'` and a clear skip reason distinguishing it from the existing dev/test-mode skip path (which should also become `status: 'skipped'` rather than `'sent'`, per R15's "skipped sends — test-domain and environment-skip alike").
+- R16 attribution: inside the three Better Auth callbacks, query practice memberships for the recipient user; if exactly one membership exists, pass that `practiceId` through to `sendEmail`/`addEmailJob`; otherwise pass none (row lands unattributed).
+- For non-auth callsites (invites, receipts, etc.) where practice context is already in scope at the call site (e.g., a practice-scoped invite flow), thread it directly — no membership lookup needed since the practice is already known.
+
+**Technical design:**
+
+> Directional only — not implementation-ready code.
+
+```
+sendEmail(payload, { practiceId? }) 
+  → email_logs insert includes practiceId (nullable)
+
+Better Auth callback (e.g. sendResetPassword):
+  memberships = lookupMemberships(user.id)
+  practiceId = memberships.length === 1 ? memberships[0].practiceId : undefined
+  addEmailJob(template, user.email, subject, data, { practiceId })
+```
+
+**Patterns to follow:**
+- Existing `organizationId`-carrying job payload in `queue.manager.ts` for how to extend `addEmailJob`'s signature without breaking existing callers (optional trailing param or options object).
+
+**Test scenarios:**
+- Happy path: sending a reset email to a user with exactly one practice membership logs `practice_id` set to that practice.
+- Edge case: sending a reset email to a user with zero practice memberships logs `practice_id: null`.
+- Edge case: sending a reset email to a user with two+ practice memberships logs `practice_id: null` (unattributed, per R16). Covers AE9.
+- Happy path: sending to an `@test-blawby.com` address logs a row with `status: 'skipped'`, not `'sent'`, and the row is otherwise complete (recipient, subject, template, timestamp). Covers AE6, AE8.
+- Integration: an existing non-test-domain send in a non-production-like environment (the pre-existing dev-skip path) now also logs `status: 'skipped'` instead of `'sent'`.
+- Integration: a practice-scoped invite email (practice known at callsite) logs the correct `practice_id` without a membership lookup.
+
+**Verification:**
+- Every email template's send path either supplies `practiceId` when determinable or explicitly logs unattributed; no send path silently drops the practice-context change.
+
+---
+
+### U4. Backend: `/api/ops/*` list and detail endpoints
+
+**Goal:** Expose `email_logs` (with practice scoping and search) through the new `/api/ops/*` route group.
+
+**Requirements:** R4, R5, R6, R8
+
+**Dependencies:** U1, U2, U3 (U4 can be built against U2's schema before U3 fully lands, but end-to-end testing needs U3 for realistic data)
+
+**Files:**
+- Create: `src/modules/ops/http.ts`
+- Create: `src/modules/ops/services/` (or module-local service file for query logic, following the module's existing service-layer convention if one exists elsewhere)
+- Test: `src/modules/ops/http.test.ts`
+
+**Approach:**
+- `GET /api/ops/emails` — list endpoint, query params: `practiceId` (optional; omitted or a sentinel value like `unattributed` selects the "no practice" bucket per R17), `recipient` (search), `status` (filter). Returns recipient, subject, template, status, error message, timestamp — no `template_data`, no rendered content (R8/data-minimization discipline carried from origin's security review).
+- `GET /api/ops/emails/:id` — detail endpoint, re-renders via the existing `renderTemplate(templateName, templateData)` and extracts actionable link(s) per the chosen link-extraction strategy (Open Questions). Handles: row not found, unknown/renamed template name, anonymized row (empty `template_data`) — all return a graceful structured response, not a 500.
+- Mount at `mountPath: '/api/ops'`, gated by `requireOpsAccess()` from U1 on every route in this module.
+- Run `scripts/codegen.ts` (or the project's standard codegen step) to register the new module in `modules.generated.ts` — do not hand-edit that generated file.
+
+**Patterns to follow:**
+- Any existing module's `http.ts` for Hono route/middleware wiring conventions (e.g., `src/modules/practice/http.ts` or similar for response shape and error handling conventions).
+- `src/shared/services/email/email.service.ts`'s `renderTemplate` usage for the detail endpoint's re-render logic.
+
+**Test scenarios:**
+- Happy path: list endpoint returns emails for a given `practiceId`, correctly scoped.
+- Happy path: list endpoint with `practiceId=unattributed` (or equivalent) returns only rows with `practice_id: null`. Covers AE3, AE7, AE9.
+- Happy path: list endpoint filters correctly by `recipient` substring and by `status`.
+- Happy path: detail endpoint returns rendered HTML and extracted link(s) for a reset-password email. Covers AE2.
+- Edge case: detail endpoint on a row whose `templateData` is anonymized (empty) returns a graceful "unavailable" response, not an error.
+- Edge case: detail endpoint on a row whose `templateName` no longer exists in the template registry returns a graceful response.
+- Error path: `requireOpsAccess()` correctly blocks non-super_admin callers hitting these routes directly (bypassing the UI). Covers AE1.
+- Integration: no mutation endpoint exists in this module — verify only GET routes are registered. Covers AE4.
+
+**Verification:**
+- A super_admin, via direct HTTP calls (not through the dashboard), can list and view any practice's emails, including the unattributed bucket, and cannot mutate anything through this module.
+
+---
+
+### U5. Dashboard: auth provider accepts `super_admin`
+
+**Goal:** Let the dashboard recognize the new role so a super_admin can log in and see ops features.
+
+**Requirements:** R10
+
+**Dependencies:** U1 (role must exist on the backend for this to be meaningfully testable end-to-end, though the frontend change itself has no hard runtime dependency)
+
+**Files:**
+- Modify: `src/providers/auth.ts`
+
+**Approach:**
+- Change the `role === "admin"` checks in `check()` and `getIdentity()` to accept `"admin"` OR `"super_admin"` (e.g., a small allow-list check rather than strict equality), so existing `admin` behavior is unaffected and `super_admin` gains equivalent dashboard access.
+
+**Patterns to follow:**
+- Existing `check()`/`getIdentity()` structure in the same file — minimal, targeted diff.
+
+**Test scenarios:**
+- Happy path: a session with `role: "super_admin"` passes `check()` and returns identity from `getIdentity()`.
+- Happy path: a session with `role: "admin"` continues to pass exactly as before (no regression).
+- Error path: a session with any other role continues to fail `check()` as before.
+
+**Verification:**
+- Logging in as a `super_admin` user reaches the dashboard's authenticated shell exactly as an `admin` user does today.
+
+---
+
+### U6. Dashboard: Emails resource — global view + per-practice tab
+
+**Goal:** Build the Emails list UI: a top-level global view and a per-practice tab, sharing one underlying list component.
+
+**Requirements:** R9, R17
+
+**Dependencies:** U4, U5
+
+**Files:**
+- Create: `src/pages/emails/list.tsx` (or equivalent Refine list page, following `src/pages/practices/` naming conventions)
+- Create: `src/pages/emails/components/EmailsTable.tsx` (shared list component used by both the global page and the practice-tab embed)
+- Modify: `src/pages/practices/show.tsx` (or wherever the practice detail view lives) to add an Emails tab
+- Modify: `src/providers/data.ts` (custom `getList` override for the `emails` resource, following the existing `users` special-case pattern)
+- Modify: `src/App.tsx` (register the new `emails` resource/route)
+
+**Approach:**
+- One `EmailsTable` component takes an optional `practiceId` prop (or `unattributed` sentinel); when present, it scopes the query and hides the practice column/filter; when absent, it's the global view showing the practice column and practice filter (including an explicit "no practice" filter value per R17/round-2 finding).
+- Recipient search and status filter (sent/failed/skipped) apply in both contexts.
+- Data provider's `getList` override for `emails` calls `/api/ops/emails` with the appropriate query params, mirroring the existing `users` override's shape.
+
+**Patterns to follow:**
+- `src/pages/practices/*` and `src/pages/users/*` for list-page structure and Refine resource wiring.
+- Existing table/filter components under `src/components/ui/`.
+
+**Test scenarios:**
+- Happy path: global Emails view lists emails across practices with a visible practice column.
+- Happy path: practice detail Emails tab shows only that practice's emails (no practice column needed, or shown but redundant).
+- Happy path: filtering by status `skipped` in either view returns only skipped-status rows.
+- Happy path: global view's practice filter set to "no practice" returns only unattributed emails. Covers AE7, AE9.
+- Edge case: recipient search with no matches shows an empty state (framework default acceptable — this was explicitly descoped from custom empty/error-state design in the origin review).
+
+**Verification:**
+- A super_admin can find any email either by opening its practice's tab or by searching the global view, including emails with no practice.
+
+---
+
+### U7. Dashboard: email preview + copy-link UI
+
+**Goal:** Let a super_admin open an email's rendered preview and copy its actionable link(s).
+
+**Requirements:** R6, R8, R9
+
+**Dependencies:** U6
+
+**Files:**
+- Create: `src/pages/emails/components/EmailPreview.tsx` (or a sheet/dialog component, following existing `sheet.tsx` usage patterns)
+- Modify: `src/pages/emails/components/EmailsTable.tsx` (row click-through to preview)
+
+**Approach:**
+- Clicking a row opens a preview (sheet or dialog) showing the rendered HTML from `/api/ops/emails/:id`, labeled clearly as a best-effort reconstruction (per R6).
+- One or more copy-link buttons render per actionable link returned by the detail endpoint; when no actionable link exists (e.g., a receipt), no copy button renders (framework default for the empty case, per the round-1 review's descope of custom empty-state design).
+- No resend/regenerate action exists anywhere in this UI (R8).
+
+**Patterns to follow:**
+- Existing `sheet.tsx`/dialog component in `src/components/ui/` for the preview surface.
+- Any existing "copy to clipboard" utility in the codebase, if one exists — otherwise a small, local clipboard-write helper.
+
+**Test scenarios:**
+- Happy path: opening a reset-password email's preview shows rendered HTML and a working copy-link button that copies the correct URL. Covers AE2.
+- Happy path: opening an email with no actionable link (e.g., a receipt) shows the preview with no copy button.
+- Edge case: opening an anonymized (>90-day-old) email shows a graceful "content no longer available" state rather than a broken render.
+- Error path: no UI action anywhere resends the email or generates a new token. Covers AE4.
+
+**Verification:**
+- End-to-end: a super_admin can go from "opens practice's Emails tab" to "has the reset link on their clipboard" without touching the database or asking an engineer — satisfying the origin doc's core success criterion.
+
+---
+
+## System-Wide Impact
+
+- **Interaction graph:** Touches Better Auth's plugin callback wiring (`sendResetPassword`, `sendVerificationEmail`, `magicLink`), the email queue (`addEmailJob`), and the shared `email_logs` table read by the existing (unrelated) retention/cleanup job — that job's column-preservation list needs a one-line update (U2) but its own logic is otherwise untouched.
+- **Error propagation:** New `/api/ops/*` endpoints must not throw unhandled errors on anonymized or template-registry-drifted rows (U4) — these are expected states, not exceptional ones, given the 90-day retention policy.
+- **State lifecycle risks:** `practice_id` population is send-time-only (no backfill in this plan); readers of `email_logs` outside this feature (e.g., the retention job) must continue to function unaware of the new column.
+- **API surface parity:** None — this is a net-new internal surface with no existing equivalent to keep in parity with.
+- **Integration coverage:** The membership-lookup-then-log-attribution chain (U3) and the retention-job-preserves-practice_id behavior (U2) are the two integration seams that unit tests alone won't fully prove; both have integration-tagged test scenarios above.
+- **Unchanged invariants:** Existing `/api/practice/*` and other org-scoped routes continue to gate on `activeOrganizationId` exactly as today — this plan does not touch that middleware, only adds a new, separate one for `/api/ops/*`.
+
+---
+
+## Risks & Dependencies
+
+| Risk | Mitigation |
+|------|------------|
+| Better Auth `admin()` plugin's `adminRoles` behavior with a new role value is unverified against the installed version | U1 starts with a short verification step against the actual installed package before writing middleware logic |
+| Threading `practiceId` through Better Auth callbacks (U3) touches auth-critical code paths | Scope the change to additive, optional parameters; existing auth flows continue to function identically if practice lookup fails or returns none |
+| Retention job silently dropping `practice_id` on anonymize would quietly break R7/R17 for all data older than 90 days | Explicit integration test scenario in U2 exercises the anonymization job against a `practice_id`-bearing row |
+| Multiple email send callsites beyond the three named auth callbacks may need `practiceId` threading not yet enumerated | U3's approach explicitly calls for a grep-and-enumerate step at implementation start rather than assuming the three named callsites are exhaustive |
+
+---
+
+## Documentation / Operational Notes
+
+- This plan implements staging-ready functionality only; before flipping `/api/ops/*` content/link visibility on in production, R12 (2FA) and R13 (audit logging) must land via a follow-up plan (see Scope Boundaries).
+- Consider capturing an institutional learning (`/ce-compound`) after this ships — both `blawby-ts` and `blawby-dashboard` currently have no `docs/solutions/` entries for Drizzle migrations, Hono module conventions, or Refine dashboard patterns, and this is the first feature to exercise several of them.
+
+---
+
+## Sources & References
+
+- **Origin document:** [docs/brainstorms/2026-07-06-ops-console-email-viewer-requirements.md](docs/brainstorms/2026-07-06-ops-console-email-viewer-requirements.md)
+- Related code: `src/shared/services/email/email.service.ts`, `src/shared/queue/queue.manager.ts`, `src/shared/auth/better-auth.ts`, `src/shared/middleware/requireAuth.ts`, `src/providers/auth.ts`, `src/providers/data.ts` (blawby-ts and blawby-dashboard respectively)
+- Institutional learning: `blawby-ai-chatbot/docs/solutions/conventions/better-auth-active-organization-id-pointer-2026-05-15.md`
+- Institutional reference: `blawby-ts/docs/EMAIL_LOG_RETENTION.md`
