@@ -109,7 +109,7 @@ const getStoredSession = () => {
   }
 };
 
-const getDashboardSession = async (): Promise<DashboardSession> => {
+const getSession = async (): Promise<DashboardSession> => {
   const now = Date.now();
   if (cachedSession && now - lastFetchTime < CACHE_TTL) {
     return cachedSession;
@@ -125,13 +125,13 @@ const getDashboardSession = async (): Promise<DashboardSession> => {
   }
 
   sessionPromise = kyInstance
-    .get("ops/session")
+    .get("auth/get-session")
     .json<unknown>()
     .then((response) => {
       const session = toDashboardSession(response);
 
       if (!session?.user) {
-        throw new Error("Dashboard session response did not include a user.");
+        throw new Error("Session response did not include a user.");
       }
 
       cachedSession = session;
@@ -195,7 +195,7 @@ export const authProvider: AuthProvider = {
     }
 
     try {
-      await getDashboardSession();
+      await getSession();
 
       return {
         success: true,
@@ -225,7 +225,7 @@ export const authProvider: AuthProvider = {
   },
   check: async () => {
     try {
-      await getDashboardSession();
+      await getSession();
       return {
         authenticated: true,
       };
@@ -239,7 +239,7 @@ export const authProvider: AuthProvider = {
   getPermissions: async () => null,
   getIdentity: async () => {
     try {
-      const session = await getDashboardSession();
+      const session = await getSession();
       const user = session?.user;
       if (user) {
         return {
