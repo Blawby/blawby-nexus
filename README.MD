@@ -1,48 +1,59 @@
-# refine-project
+# Blawby Dashboard
 
-<div align="center" style="margin: 30px;">
-    <a href="https://refine.dev">
-    <img alt="refine logo" src="https://refine.ams3.cdn.digitaloceanspaces.com/readme/refine-readme-banner.png">
-    </a>
-</div>
-<br/>
+Internal dashboard for Blawby support/admin workflows. It is a frontend-only app built with Refine, Vite, React, React Router, Tailwind, and shadcn/ui.
 
-This [Refine](https://github.com/refinedev/refine) project was generated with [create refine-app](https://github.com/refinedev/refine/tree/master/packages/create-refine-app).
+The backend lives in the separate `blawby-ts` repo. This app talks to it over REST under `/api` and relies on Better Auth cookies for authentication.
 
-## Getting Started
+## Requirements
 
-A React Framework for building internal tools, admin panels, dashboards & B2B apps with unmatched flexibility ✨
+- Node.js compatible with the project lockfile
+- pnpm
+- A running Blawby backend
+- `cloudflared` if you want to use the local dashboard tunnel
 
-Refine's hooks and components simplifies the development process and eliminates the repetitive tasks by providing industry-standard solutions for crucial aspects of a project, including authentication, access control, routing, networking, state management, and i18n.
-
-## Available Scripts
-
-### Running the development server.
+Create `.env` in the project root:
 
 ```bash
-    npm run dev
+VITE_API_URL=http://localhost:3000
+CLOUDFLARE_TUNNEL_TOKEN=your-cloudflare-tunnel-token
 ```
 
-### Building for production.
+`VITE_API_URL` should point to the backend origin, without `/api`.
+
+## Run Locally
+
+Install dependencies:
 
 ```bash
-    npm run build
+pnpm install
 ```
 
-### Running the production server.
+Run the dashboard with the Cloudflare tunnel:
 
 ```bash
-    npm run start
+pnpm dev
 ```
 
-## Learn More
+Run only the tunnel:
 
-To learn more about **Refine**, please check out the [Documentation](https://refine.dev/docs)
+```bash
+pnpm tunnel
+```
 
-- **REST Data Provider** [Docs](https://refine.dev/docs/core/providers/data-provider/#overview)
-- **Custom Auth Provider** [Docs](https://refine.dev/docs/core/providers/auth-provider/)
-- **React Router** [Docs](https://refine.dev/docs/core/providers/router-provider/)
+In development, Vite proxies `/api` to `VITE_API_URL`. In production, the app calls `${VITE_API_URL}/api` directly.
 
-## License
+## Useful Commands
 
-MIT
+```bash
+pnpm typecheck
+pnpm lint
+pnpm build
+pnpm start
+pnpm dlx shadcn add <component>
+```
+
+`pnpm build` runs TypeScript first, then the Refine/Vite production build.
+
+## Project Guide
+
+See [docs/project-guide.md](docs/project-guide.md) for the architecture, route/resource conventions, auth flow, API wiring, and how to add new dashboard modules.
