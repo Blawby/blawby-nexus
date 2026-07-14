@@ -1,7 +1,6 @@
 import * as React from "react"
 import { useGetIdentity } from "@refinedev/core"
 import {
-  Mail,
   GalleryVerticalEnd,
   SquareTerminal,
 } from "lucide-react"
@@ -44,17 +43,6 @@ const data = {
         {
           title: "Practices",
           url: "/practices",
-        },
-      ],
-    },
-    {
-      title: "Ops",
-      url: "#",
-      icon: Mail,
-      items: [
-        {
-          title: "Emails",
-          url: "/emails",
         },
       ],
     },

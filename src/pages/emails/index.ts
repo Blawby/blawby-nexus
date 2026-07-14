@@ -1,2 +1,3 @@
-export * from "./list";
-export * from "./routes";
+export * from "./components/EmailPreview";
+export * from "./components/EmailsTable";
+export * from "./types";

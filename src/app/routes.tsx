@@ -6,7 +6,6 @@ import {
 import { Outlet, Route, Routes } from "react-router";
 
 import { DashboardHome, DashboardLayout } from "@/pages/dashboard";
-import { emailRoutes } from "@/pages/emails/routes";
 import { LoginPage } from "@/pages/login";
 import { practiceRoutes } from "@/pages/practices/routes";
 import { userRoutes } from "@/pages/users/routes";
@@ -38,7 +37,6 @@ export const AppRoutes = () => {
 
         {userRoutes}
         {practiceRoutes}
-        {emailRoutes}
       </Route>
 
       <Route path="*" element={<ErrorPage />} />

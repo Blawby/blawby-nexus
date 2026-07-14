@@ -17,8 +17,4 @@ export const resources = [
     edit: "/practices/edit/:id",
     show: "/practices/show/:id",
   },
-  {
-    name: "emails",
-    list: "/emails",
-  },
 ];

@@ -26,6 +26,7 @@ import { type EmailStatus, type OpsEmailListItem } from "../types";
 
 type EmailsTableProps = {
   practiceId?: string;
+  recipientEmail?: string;
   compact?: boolean;
 };
 
@@ -35,6 +36,10 @@ const statusOptions: Array<EmailStatus | "all"> = [
   "failed",
   "skipped",
 ];
+
+const isEmailStatusFilter = (value: string): value is EmailStatus | "all" => {
+  return statusOptions.some((option) => option === value);
+};
 
 const getRecipient = (email: OpsEmailListItem) => {
   return email.recipient ?? email.recipientEmail ?? email.recipient_email ?? "Anonymized";
@@ -107,17 +112,22 @@ const buildFilters = (
   return filters;
 };
 
-export const EmailsTable = ({ practiceId, compact = false }: EmailsTableProps) => {
+export const EmailsTable = ({
+  practiceId,
+  recipientEmail,
+  compact = false,
+}: EmailsTableProps) => {
   const [recipient, setRecipient] = useState("");
   const [status, setStatus] = useState<EmailStatus | "all">("all");
   const [practiceFilter, setPracticeFilter] = useState("all");
   const [current, setCurrent] = useState(1);
   const [previewEmailId, setPreviewEmailId] = useState<string | null>(null);
   const pageSize = compact ? 10 : 20;
+  const scopedRecipient = recipientEmail ?? recipient;
 
   const filters = useMemo(
-    () => buildFilters(recipient, status, practiceId, practiceFilter),
-    [practiceFilter, practiceId, recipient, status]
+    () => buildFilters(scopedRecipient, status, practiceId, practiceFilter),
+    [practiceFilter, practiceId, scopedRecipient, status]
   );
 
   const { query, result } = useList<OpsEmailListItem>({
@@ -145,11 +155,16 @@ export const EmailsTable = ({ practiceId, compact = false }: EmailsTableProps) =
         <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            value={recipient}
-            onChange={(event) => {
-              setRecipient(event.target.value);
-              resetPage();
-            }}
+            value={scopedRecipient}
+            readOnly={Boolean(recipientEmail)}
+            onChange={
+              recipientEmail
+                ? undefined
+                : (event) => {
+                    setRecipient(event.target.value);
+                    resetPage();
+                  }
+            }
             placeholder="Search recipient"
             className="pl-9"
           />
@@ -157,7 +172,7 @@ export const EmailsTable = ({ practiceId, compact = false }: EmailsTableProps) =
         <Select
           value={status}
           onValueChange={(value) => {
-            setStatus(value as EmailStatus | "all");
+            setStatus(value && isEmailStatusFilter(value) ? value : "all");
             resetPage();
           }}
         >
