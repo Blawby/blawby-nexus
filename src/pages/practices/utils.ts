@@ -10,8 +10,11 @@ export const getPracticeName = (practice: OpsPractice | undefined) => {
 };
 
 export const getPracticeListName = (practice: OpsPractice) => {
-  const name = getPracticeName(practice);
-  return name === "Practice" ? "Unnamed practice" : name;
+  return firstPresent(
+    practice.name,
+    practice.practiceName,
+    practice.displayName
+  ) ?? "Unnamed practice";
 };
 
 export const getPracticeCreatedAt = (practice: OpsPractice) => {

@@ -156,13 +156,9 @@ const getSession = async (): Promise<DashboardSession> => {
     return sessionPromise;
   }
 
-  if (!cachedSession) {
-    const storedSession = getStoredSession();
-    if (storedSession?.user) {
-      cachedSession = storedSession;
-      lastFetchTime = Date.now();
-      return storedSession;
-    }
+  const storedSession = getStoredSession();
+  if (!storedSession?.user) {
+    localStorage.removeItem(SESSION_KEY);
   }
 
   sessionPromise = kyInstance
@@ -182,8 +178,7 @@ const getSession = async (): Promise<DashboardSession> => {
       return session;
     })
     .catch((error) => {
-      cachedSession = null;
-      sessionPromise = null;
+      clearSessionCache();
       throw error;
     });
 
