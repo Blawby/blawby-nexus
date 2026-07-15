@@ -1,0 +1,21 @@
+export type OpsUser = {
+  id: string;
+  name?: string | null;
+  email?: string | null;
+  email_verified?: boolean | null;
+  emailVerified?: boolean | null;
+  image?: string | null;
+  phone?: string | null;
+  role?: string | null;
+  banned?: boolean | null;
+  ban_reason?: string | null;
+  banReason?: string | null;
+  ban_expires?: string | null;
+  banExpires?: string | null;
+  onboarding_complete?: boolean | null;
+  onboardingComplete?: boolean | null;
+  created_at?: string | null;
+  createdAt?: string | null;
+  updated_at?: string | null;
+  updatedAt?: string | null;
+};

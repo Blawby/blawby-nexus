@@ -41,7 +41,7 @@ function loadToken() {
                     break;
                 }
             }
-        } catch (err) {
+        } catch {
             // .env file doesn't exist or can't be read, that's okay
         }
     }

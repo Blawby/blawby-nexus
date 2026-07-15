@@ -1,8 +1,5 @@
-import {
-  Bell,
-  ChevronsUpDown,
-  LogOut,
-} from "lucide-react"
+import { useLogout } from "@refinedev/core"
+import { ChevronsUpDown, LogOut } from "lucide-react"
 
 import {
   Avatar,
@@ -12,7 +9,6 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -22,69 +18,57 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  useSidebar,
 } from "@/components/ui/sidebar"
+import type { SidebarUser } from "@/components/types"
 
-export function NavUser({
-  user,
-}: {
-  user: {
-    name: string
-    email: string
-    avatar: string
+const getDisplayName = (user: SidebarUser) => {
+  return user.name?.trim() || user.email?.trim() || "Signed in user"
+}
+
+const getInitials = (user: SidebarUser) => {
+  const source = getDisplayName(user)
+  const words = source.split(/\s+/).filter(Boolean)
+
+  if (words.length >= 2) {
+    return `${words[0][0]}${words[1][0]}`.toUpperCase()
   }
-}) {
-  const { isMobile } = useSidebar()
+
+  return source.slice(0, 2).toUpperCase()
+}
+
+export function NavUser({ user }: { user: SidebarUser }) {
+  const { mutate: logout } = useLogout()
+  const displayName = getDisplayName(user)
+  const email = user.email?.trim() || "No email"
 
   return (
     <SidebarMenu>
       <SidebarMenuItem>
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <SidebarMenuButton
-              size="lg"
-              className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-            >
-              <Avatar className="h-8 w-8 rounded-lg">
-                <AvatarImage src={user.avatar} alt={user.name} />
-                <AvatarFallback className="rounded-lg">CN</AvatarFallback>
-              </Avatar>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">{user.name}</span>
-                <span className="truncate text-xs">{user.email}</span>
-              </div>
-              <ChevronsUpDown className="ml-auto size-4" />
-            </SidebarMenuButton>
+          <DropdownMenuTrigger render={<SidebarMenuButton size="lg" />}>
+            <Avatar className="h-8 w-8 rounded-lg">
+              <AvatarImage src={user.avatar ?? undefined} alt={displayName} />
+              <AvatarFallback className="rounded-lg">{getInitials(user)}</AvatarFallback>
+            </Avatar>
+            <div className="grid flex-1 text-left text-sm leading-tight">
+              <span className="truncate font-semibold">{displayName}</span>
+              <span className="truncate text-xs">{email}</span>
+            </div>
+            <ChevronsUpDown className="ml-auto size-4" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent
-            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
-            side={isMobile ? "bottom" : "right"}
-            align="end"
-            sideOffset={4}
-          >
-            <DropdownMenuLabel className="p-0 font-normal">
-              <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-                <Avatar className="h-8 w-8 rounded-lg">
-                  <AvatarImage src={user.avatar} alt={user.name} />
-                  <AvatarFallback className="rounded-lg">CN</AvatarFallback>
-                </Avatar>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-medium">{user.name}</span>
-                  <span className="truncate text-xs">{user.email}</span>
-                </div>
+          <DropdownMenuContent side="right" align="end" sideOffset={4}>
+            <DropdownMenuLabel>
+              <div className="grid text-sm leading-tight">
+                <span className="truncate font-semibold">{displayName}</span>
+                <span className="truncate text-xs font-normal text-muted-foreground">
+                  {email}
+                </span>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <Bell />
-                Notifications
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={() => logout()}>
               <LogOut />
-              Log out
+              Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -1,5 +1,5 @@
-import * as React from "react";
-import { useLogin } from "@refinedev/core";
+import { useState, type ComponentProps, type SubmitEvent } from "react";
+import { useNavigate } from "react-router";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,23 +11,42 @@ import {
 } from "@/components/ui/card";
 import {
   Field,
-  FieldDescription,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { authProvider } from "@/providers/auth";
 
 export function LoginPage({
   className,
   ...props
-}: React.ComponentProps<"div">) {
-  const { mutate: login, isPending } = useLogin();
-  const [email, setEmail] = React.useState("");
-  const [password, setPassword] = React.useState("");
+}: ComponentProps<"div">) {
+  const navigate = useNavigate();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isPending, setIsPending] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
-    login({ email, password });
+    setFormError(null);
+
+    setIsPending(true);
+
+    try {
+      const response = await authProvider.login?.({ email, password });
+      if (response?.success) {
+        void navigate(response.redirectTo ?? "/", { replace: true });
+      } else {
+        setFormError(response.error?.message ?? "Invalid email or password");
+      }
+    } catch (error) {
+      setFormError(
+        error instanceof Error ? error.message : "Login failed. Please try again."
+      );
+    } finally {
+      setIsPending(false);
+    }
   };
 
   return (
@@ -42,7 +61,7 @@ export function LoginPage({
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit}>
+              <form onSubmit={(e) => { void handleSubmit(e); }}>
                 <FieldGroup>
                   <Field>
                     <FieldLabel htmlFor="email">Email</FieldLabel>
@@ -74,22 +93,17 @@ export function LoginPage({
                     />
                   </Field>
                   <Field>
+                    {formError ? (
+                      <div
+                        role="alert"
+                        className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                      >
+                        {formError}
+                      </div>
+                    ) : null}
                     <Button type="submit" disabled={isPending}>
                       {isPending ? "Logging in..." : "Login"}
                     </Button>
-                    <Button
-                      variant="outline"
-                      type="button"
-                      onClick={() => login({ providerName: "google" })}
-                    >
-                      Login with Google
-                    </Button>
-                    <FieldDescription className="text-center">
-                      Don&apos;t have an account?{" "}
-                      <a href="#" className="underline underline-offset-4">
-                        Sign up
-                      </a>
-                    </FieldDescription>
                   </Field>
                 </FieldGroup>
               </form>
