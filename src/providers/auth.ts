@@ -1,12 +1,13 @@
 import type { AuthProvider } from "@refinedev/core";
-import { API_URL } from "./constants";
-import { kyInstance } from "./data";
+import { API_URL } from "@/providers/constants";
+import { kyInstance } from "@/providers/data";
 
 type DashboardUser = {
   id: string;
   name?: string | null;
   image?: string | null;
   email?: string | null;
+  role?: string | null;
 };
 
 type DashboardSession = {
@@ -24,7 +25,8 @@ let cachedSession: DashboardSession = null;
 let lastFetchTime = 0;
 const CACHE_TTL = 5000; // 5 seconds
 
-const SESSION_KEY = "dashboard_session";
+const SESSION_KEY = "auth_session";
+const DASHBOARD_ROLES = ["admin", "super_admin"] as const;
 
 const clearSessionCache = () => {
   cachedSession = null;
@@ -66,6 +68,41 @@ const getErrorStatus = (error: unknown) => {
   }
 
   return typeof error.status === "number" ? error.status : undefined;
+};
+
+const getErrorUrl = (error: unknown) => {
+  if (!isRecord(error)) {
+    return undefined;
+  }
+
+  const response = error.response;
+  if (isRecord(response) && typeof response.url === "string") {
+    return response.url;
+  }
+
+  return typeof error.url === "string" ? error.url : undefined;
+};
+
+const isOpsAuthError = (error: unknown) => {
+  const status = getErrorStatus(error);
+  const url = getErrorUrl(error);
+
+  return (
+    (status === 401 || status === 403) &&
+    Boolean(url?.includes("/api/ops/") || url?.includes("/ops/"))
+  );
+};
+
+const getDashboardRoles = (role: string | null | undefined) => {
+  return role
+    ?.split(",")
+    .map((item) => item.trim())
+    .filter(Boolean) ?? [];
+};
+
+const hasDashboardAccess = (user: DashboardUser | null | undefined) => {
+  const roles = getDashboardRoles(user?.role);
+  return DASHBOARD_ROLES.some((role) => roles.includes(role));
 };
 
 const toDashboardSession = (value: unknown): DashboardSession => {
@@ -119,9 +156,13 @@ const getSession = async (): Promise<DashboardSession> => {
     return sessionPromise;
   }
 
-  // Try to recover from localStorage if cache is empty (e.g. after HMR)
   if (!cachedSession) {
-    cachedSession = getStoredSession();
+    const storedSession = getStoredSession();
+    if (storedSession?.user) {
+      cachedSession = storedSession;
+      lastFetchTime = Date.now();
+      return storedSession;
+    }
   }
 
   sessionPromise = kyInstance
@@ -151,6 +192,9 @@ const getSession = async (): Promise<DashboardSession> => {
 
 const getDashboardAccessErrorMessage = (error: unknown) => {
   const status = getErrorStatus(error);
+  const message = isRecord(error) && typeof error.message === "string"
+    ? error.message
+    : undefined;
 
   if (status === 403) {
     return "This account does not have dashboard access.";
@@ -160,7 +204,7 @@ const getDashboardAccessErrorMessage = (error: unknown) => {
     return "Invalid email or password.";
   }
 
-  return "Dashboard access could not be verified.";
+  return message ?? "Dashboard access could not be verified.";
 };
 
 export const authProvider: AuthProvider = {
@@ -195,7 +239,10 @@ export const authProvider: AuthProvider = {
     }
 
     try {
-      await getSession();
+      const session = await getSession();
+      if (!hasDashboardAccess(session?.user)) {
+        throw new Error("This account does not have dashboard access.");
+      }
 
       return {
         success: true,
@@ -221,11 +268,23 @@ export const authProvider: AuthProvider = {
     };
   },
   onError: async (error) => {
+    if (isOpsAuthError(error)) {
+      await signOutSilently();
+    }
+
     return { error };
   },
   check: async () => {
     try {
-      await getSession();
+      const session = await getSession();
+      if (!hasDashboardAccess(session?.user)) {
+        await signOutSilently();
+        return {
+          authenticated: false,
+          redirectTo: "/login",
+        };
+      }
+
       return {
         authenticated: true,
       };
@@ -247,6 +306,7 @@ export const authProvider: AuthProvider = {
           name: user.name,
           avatar: user.image,
           email: user.email,
+          role: user.role,
         };
       }
     } catch {

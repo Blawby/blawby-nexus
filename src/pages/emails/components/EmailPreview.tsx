@@ -11,7 +11,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { getErrorMessage } from "@/lib/errors";
-import { type ActionableEmailLink, type OpsEmailDetail } from "../types";
+import { type ActionableEmailLink, type OpsEmailDetail } from "@/pages/emails/types";
 
 type EmailPreviewProps = {
   emailId: string | null;
@@ -57,9 +57,13 @@ export const EmailPreview = ({
       : null);
 
   const copyLink = async (url: string) => {
-    await navigator.clipboard.writeText(url);
-    setCopiedUrl(url);
-    window.setTimeout(() => setCopiedUrl(null), 1600);
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedUrl(url);
+      window.setTimeout(() => setCopiedUrl(null), 1600);
+    } catch {
+      setCopiedUrl(null);
+    }
   };
 
   return (

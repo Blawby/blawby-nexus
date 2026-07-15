@@ -1,9 +1,9 @@
 import { Route } from "react-router";
 
-import { PracticesCreate } from "./create";
-import { PracticesEdit } from "./edit";
-import { PracticesList } from "./list";
-import { PracticesShow } from "./show";
+import { PracticesCreate } from "@/pages/practices/create";
+import { PracticesEdit } from "@/pages/practices/edit";
+import { PracticesList } from "@/pages/practices/list";
+import { PracticesShow } from "@/pages/practices/show";
 
 export const practiceRoutes = (
   <Route path="/practices">

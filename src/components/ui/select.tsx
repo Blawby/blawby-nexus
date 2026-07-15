@@ -28,7 +28,7 @@ const SelectTrigger = React.forwardRef<
     <SelectPrimitive.Icon render={<ChevronDown className="h-4 w-4 opacity-50" />} />
   </SelectPrimitive.Trigger>
 ))
-SelectTrigger.displayName = SelectPrimitive.Trigger.displayName
+SelectTrigger.displayName = "SelectTrigger"
 
 const SelectScrollUpButton = React.forwardRef<
   React.ComponentRef<typeof SelectPrimitive.ScrollUpArrow>,
@@ -67,10 +67,10 @@ SelectScrollDownButton.displayName = "SelectScrollDownButton"
 const SelectContent = React.forwardRef<
   React.ComponentRef<typeof SelectPrimitive.Popup>,
   SelectPrimitive.Popup.Props &
-    Pick<
-      SelectPrimitive.Positioner.Props,
-      "align" | "alignItemWithTrigger" | "alignOffset" | "side" | "sideOffset"
-    >
+  Pick<
+    SelectPrimitive.Positioner.Props,
+    "align" | "alignItemWithTrigger" | "alignOffset" | "side" | "sideOffset"
+  >
 >(({ className, children, align = "start", alignItemWithTrigger = false, alignOffset, side, sideOffset = 4, ...props }, ref) => (
   <SelectPrimitive.Portal>
     <SelectPrimitive.Positioner
@@ -90,7 +90,7 @@ const SelectContent = React.forwardRef<
       >
         <SelectScrollUpButton />
         <SelectPrimitive.List className="p-1">
-        {children}
+          {children}
         </SelectPrimitive.List>
         <SelectScrollDownButton />
       </SelectPrimitive.Popup>
@@ -124,14 +124,14 @@ const SelectItem = React.forwardRef<
     {...props}
   >
     <SelectPrimitive.ItemIndicator render={<span className="absolute right-2 flex h-3.5 w-3.5 items-center justify-center" />}>
-        <Check className="h-4 w-4" />
+      <Check className="h-4 w-4" />
     </SelectPrimitive.ItemIndicator>
     <SelectPrimitive.ItemText className="shrink-0 whitespace-nowrap">
       {children}
     </SelectPrimitive.ItemText>
   </SelectPrimitive.Item>
 ))
-SelectItem.displayName = SelectPrimitive.Item.displayName
+SelectItem.displayName = "SelectItem"
 
 const SelectSeparator = React.forwardRef<
   React.ComponentRef<typeof SelectPrimitive.Separator>,
@@ -143,7 +143,7 @@ const SelectSeparator = React.forwardRef<
     {...props}
   />
 ))
-SelectSeparator.displayName = SelectPrimitive.Separator.displayName
+SelectSeparator.displayName = "SelectSeparator"
 
 export {
   Select,

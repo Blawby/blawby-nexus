@@ -22,9 +22,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { formatDate } from "@/lib/resource-helpers";
 import { cn } from "@/lib/utils";
 import { getErrorMessage } from "@/lib/errors";
-import type { OpsPractice, PracticeInvitation } from "./types";
+import {
+  getPracticeCreatedAt,
+  getPracticeName,
+  getPracticeUpdatedAt,
+} from "@/pages/practices/utils";
+import type { OpsPractice, PracticeInvitation } from "@/pages/practices/types";
 
 const invitationPageSize = 10;
 const invitationStatuses = ["all", "pending", "accepted", "rejected", "canceled", "expired"];
@@ -51,23 +58,6 @@ const buildInvitationFilters = (search: string, status: string) => {
   return filters;
 };
 
-const formatDate = (value: string | null | undefined) => {
-  if (!value) return "Unknown";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-};
-
-const getPracticeName = (practice: OpsPractice | undefined) => {
-  return practice?.name ?? practice?.practiceName ?? practice?.displayName ?? "Practice";
-};
-
-const getCreatedAt = (practice: OpsPractice) => practice.created_at ?? practice.createdAt;
-const getUpdatedAt = (practice: OpsPractice) => practice.updated_at ?? practice.updatedAt;
 const getInvitationCreatedAt = (invitation: PracticeInvitation) =>
   invitation.created_at ?? invitation.createdAt;
 const getInvitationExpiresAt = (invitation: PracticeInvitation) =>
@@ -97,10 +87,11 @@ const PracticeInvitationsTable = ({ practiceId }: PracticeInvitationsTableProps)
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [current, setCurrent] = useState(1);
+  const debouncedSearch = useDebouncedValue(search);
 
   const filters = useMemo(
-    () => buildInvitationFilters(search, status),
-    [search, status]
+    () => buildInvitationFilters(debouncedSearch, status),
+    [debouncedSearch, status]
   );
 
   const { query, result } = useList<PracticeInvitation>({
@@ -347,11 +338,11 @@ export const PracticesShow = () => {
               </div>
               <div>
                 <dt className="text-muted-foreground">Created</dt>
-                <dd className="font-medium">{formatDate(getCreatedAt(practice))}</dd>
+                <dd className="font-medium">{formatDate(getPracticeCreatedAt(practice))}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Updated</dt>
-                <dd className="font-medium">{formatDate(getUpdatedAt(practice))}</dd>
+                <dd className="font-medium">{formatDate(getPracticeUpdatedAt(practice))}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">ID</dt>

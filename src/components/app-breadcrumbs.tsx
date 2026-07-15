@@ -35,7 +35,7 @@ const toTitle = (segment: string) => {
 };
 
 const isLikelyIdentifier = (segment: string) => {
-  return segment.length > 12 || /^[0-9a-f-]{8,}$/i.test(segment);
+  return /^\d+$/.test(segment) || /^[0-9a-f-]{8,}$/i.test(segment);
 };
 
 const getSegmentLabel = (segment: string) => {

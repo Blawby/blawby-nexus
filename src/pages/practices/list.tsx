@@ -13,8 +13,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { getErrorMessage } from "@/lib/errors";
-import type { OpsPractice } from "./types";
+import { formatDate } from "@/lib/resource-helpers";
+import {
+  getPracticeCreatedAt,
+  getPracticeListName,
+} from "@/pages/practices/utils";
+import type { OpsPractice } from "@/pages/practices/types";
 
 const pageSize = 20;
 
@@ -32,29 +38,13 @@ const buildFilters = (search: string) => {
   return filters;
 };
 
-const formatDate = (value: string | null | undefined) => {
-  if (!value) return "Unknown";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-};
-
-const getPracticeName = (practice: OpsPractice) => {
-  return practice.name ?? practice.practiceName ?? practice.displayName ?? "Unnamed practice";
-};
-
-const getCreatedAt = (practice: OpsPractice) => practice.created_at ?? practice.createdAt;
-
 export const PracticesList = () => {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [current, setCurrent] = useState(1);
+  const debouncedSearch = useDebouncedValue(search);
 
-  const filters = useMemo(() => buildFilters(search), [search]);
+  const filters = useMemo(() => buildFilters(debouncedSearch), [debouncedSearch]);
 
   const { query, result } = useList<OpsPractice>({
     resource: "practices",
@@ -148,7 +138,7 @@ export const PracticesList = () => {
               practices.map((practice) => (
                 <TableRow key={practice.id}>
                   <TableCell className="max-w-56 truncate font-medium">
-                    {getPracticeName(practice)}
+                    {getPracticeListName(practice)}
                   </TableCell>
                   <TableCell className="max-w-44 truncate text-muted-foreground">
                     {practice.slug ?? "No slug"}
@@ -165,7 +155,7 @@ export const PracticesList = () => {
                     </span>
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-muted-foreground">
-                    {formatDate(getCreatedAt(practice))}
+                    {formatDate(getPracticeCreatedAt(practice))}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button

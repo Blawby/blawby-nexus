@@ -19,10 +19,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { formatDate } from "@/lib/resource-helpers";
 import { cn } from "@/lib/utils";
 import { getErrorMessage } from "@/lib/errors";
-import { EmailPreview } from "./EmailPreview";
-import { type EmailStatus, type OpsEmailListItem } from "../types";
+import { EmailPreview } from "@/pages/emails/components/EmailPreview";
+import { type EmailStatus, type OpsEmailListItem } from "@/pages/emails/types";
 
 type EmailsTableProps = {
   practiceId?: string;
@@ -65,17 +67,6 @@ const getPractice = (email: OpsEmailListItem) => {
     email.practice_id ??
     "No practice"
   );
-};
-
-const formatDate = (value: string) => {
-  if (!value) return "Unknown";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
 };
 
 const statusClassName: Record<EmailStatus, string> = {
@@ -123,7 +114,9 @@ export const EmailsTable = ({
   const [current, setCurrent] = useState(1);
   const [previewEmailId, setPreviewEmailId] = useState<string | null>(null);
   const pageSize = compact ? 10 : 20;
-  const scopedRecipient = recipientEmail ?? recipient;
+  const debouncedRecipient = useDebouncedValue(recipient);
+  const displayRecipient = recipientEmail ?? recipient;
+  const scopedRecipient = recipientEmail ?? debouncedRecipient;
 
   const filters = useMemo(
     () => buildFilters(scopedRecipient, status, practiceId, practiceFilter),
@@ -155,7 +148,7 @@ export const EmailsTable = ({
         <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            value={scopedRecipient}
+            value={displayRecipient}
             readOnly={Boolean(recipientEmail)}
             onChange={
               recipientEmail

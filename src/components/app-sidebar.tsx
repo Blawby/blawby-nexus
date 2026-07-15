@@ -15,13 +15,7 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@/components/ui/sidebar"
-
-type SidebarIdentity = {
-  id: string
-  name?: string | null
-  email?: string | null
-  avatar?: string | null
-}
+import type { SidebarUser } from "@/components/types"
 
 const data = {
   team: {
@@ -50,7 +44,7 @@ const data = {
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
-  const { data: identity } = useGetIdentity<SidebarIdentity>()
+  const { data: identity } = useGetIdentity<SidebarUser>()
 
   return (
     <Sidebar collapsible="icon" {...props}>

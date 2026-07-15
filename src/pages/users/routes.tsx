@@ -1,9 +1,9 @@
 import { Route } from "react-router";
 
-import { UsersCreate } from "./create";
-import { UsersEdit } from "./edit";
-import { UsersList } from "./list";
-import { UsersShow } from "./show";
+import { UsersCreate } from "@/pages/users/create";
+import { UsersEdit } from "@/pages/users/edit";
+import { UsersList } from "@/pages/users/list";
+import { UsersShow } from "@/pages/users/show";
 
 export const userRoutes = (
   <Route path="/users">

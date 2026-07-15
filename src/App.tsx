@@ -8,11 +8,11 @@ import routerProvider, {
   DocumentTitleHandler,
 } from "@refinedev/react-router";
 
-import "./index.css";
-import { AppRoutes } from "./app/routes";
-import { resources } from "./app/resources";
-import { dataProvider } from "./providers/data";
-import { authProvider } from "./providers/auth";
+import "@/index.css";
+import { AppRoutes } from "@/app/routes";
+import { resources } from "@/app/resources";
+import { dataProvider } from "@/providers/data";
+import { authProvider } from "@/providers/auth";
 
 import { ThemeProvider } from "@/components/theme-provider.tsx";
 

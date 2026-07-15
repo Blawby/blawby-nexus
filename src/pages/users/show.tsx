@@ -5,31 +5,21 @@ import { useNavigate, useParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getErrorMessage } from "@/lib/errors";
+import { formatDate } from "@/lib/resource-helpers";
 import { EmailsTable } from "@/pages/emails/components/EmailsTable";
-import type { OpsUser } from "./types";
-
-const formatDate = (value: string | null | undefined) => {
-  if (!value) return "Unknown";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-};
+import {
+  getUserBanExpires,
+  getUserBanReason,
+  getUserCreatedAt,
+  getUserEmailVerified,
+  getUserOnboardingComplete,
+  getUserUpdatedAt,
+} from "@/pages/users/utils";
+import type { OpsUser } from "@/pages/users/types";
 
 const formatBoolean = (value: boolean | null | undefined) => {
   return value ? "Yes" : "No";
 };
-
-const getEmailVerified = (user: OpsUser) => user.email_verified ?? user.emailVerified ?? false;
-const getOnboardingComplete = (user: OpsUser) =>
-  user.onboarding_complete ?? user.onboardingComplete ?? false;
-const getCreatedAt = (user: OpsUser) => user.created_at ?? user.createdAt;
-const getUpdatedAt = (user: OpsUser) => user.updated_at ?? user.updatedAt;
-const getBanReason = (user: OpsUser) => user.ban_reason ?? user.banReason;
-const getBanExpires = (user: OpsUser) => user.ban_expires ?? user.banExpires;
 
 export const UsersShow = () => {
   const navigate = useNavigate();
@@ -103,11 +93,11 @@ export const UsersShow = () => {
               </div>
               <div>
                 <dt className="text-muted-foreground">Email verified</dt>
-                <dd className="font-medium">{formatBoolean(getEmailVerified(user))}</dd>
+                <dd className="font-medium">{formatBoolean(getUserEmailVerified(user))}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Onboarding complete</dt>
-                <dd className="font-medium">{formatBoolean(getOnboardingComplete(user))}</dd>
+                <dd className="font-medium">{formatBoolean(getUserOnboardingComplete(user))}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Banned</dt>
@@ -119,19 +109,19 @@ export const UsersShow = () => {
               </div>
               <div>
                 <dt className="text-muted-foreground">Ban reason</dt>
-                <dd className="font-medium">{getBanReason(user) ?? "None"}</dd>
+                <dd className="font-medium">{getUserBanReason(user) ?? "None"}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Ban expires</dt>
-                <dd className="font-medium">{formatDate(getBanExpires(user))}</dd>
+                <dd className="font-medium">{formatDate(getUserBanExpires(user))}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Created</dt>
-                <dd className="font-medium">{formatDate(getCreatedAt(user))}</dd>
+                <dd className="font-medium">{formatDate(getUserCreatedAt(user))}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Updated</dt>
-                <dd className="font-medium">{formatDate(getUpdatedAt(user))}</dd>
+                <dd className="font-medium">{formatDate(getUserUpdatedAt(user))}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">ID</dt>
@@ -146,6 +136,21 @@ export const UsersShow = () => {
           {query.isLoading ? (
             <div className="rounded-md border p-4 text-sm text-muted-foreground">
               Loading user...
+            </div>
+          ) : query.isError ? (
+            <div className="space-y-3 rounded-md border p-4 text-sm">
+              <p className="font-medium text-destructive">User could not be loaded.</p>
+              <p className="text-muted-foreground">{getErrorMessage(query.error)}</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void query.refetch();
+                }}
+              >
+                Retry
+              </Button>
             </div>
           ) : user?.email ? (
             <EmailsTable key={user.email} recipientEmail={user.email} compact />

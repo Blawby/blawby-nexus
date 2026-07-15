@@ -1,3 +1,3 @@
-export * from "./components/EmailPreview";
-export * from "./components/EmailsTable";
-export * from "./types";
+export * from "@/pages/emails/components/EmailPreview";
+export * from "@/pages/emails/components/EmailsTable";
+export * from "@/pages/emails/types";

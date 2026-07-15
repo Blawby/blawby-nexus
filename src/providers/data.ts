@@ -6,7 +6,7 @@ import type {
   GetOneParams,
 } from "@refinedev/core";
 import { createSimpleRestDataProvider } from "@refinedev/rest/simple-rest";
-import { API_URL } from "./constants";
+import { API_URL } from "@/providers/constants";
 
 const { dataProvider: baseDataProvider, kyInstance } = createSimpleRestDataProvider({
   apiURL: API_URL,

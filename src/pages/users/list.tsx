@@ -13,9 +13,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { cn } from "@/lib/utils";
 import { getErrorMessage } from "@/lib/errors";
-import type { OpsUser } from "./types";
+import { formatDate } from "@/lib/resource-helpers";
+import { getUserCreatedAt, getUserEmailVerified } from "@/pages/users/utils";
+import type { OpsUser } from "@/pages/users/types";
 
 const pageSize = 20;
 
@@ -33,20 +36,6 @@ const buildFilters = (search: string) => {
   return filters;
 };
 
-const formatDate = (value: string | null | undefined) => {
-  if (!value) return "Unknown";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-};
-
-const getCreatedAt = (user: OpsUser) => user.created_at ?? user.createdAt;
-const getEmailVerified = (user: OpsUser) => user.email_verified ?? user.emailVerified ?? false;
-
 const formatRoles = (role: string | null | undefined) => {
   if (!role) return "No role";
 
@@ -61,8 +50,9 @@ export const UsersList = () => {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [current, setCurrent] = useState(1);
+  const debouncedSearch = useDebouncedValue(search);
 
-  const filters = useMemo(() => buildFilters(search), [search]);
+  const filters = useMemo(() => buildFilters(debouncedSearch), [debouncedSearch]);
 
   const { query, result } = useList<OpsUser>({
     resource: "users",
@@ -168,12 +158,12 @@ export const UsersList = () => {
                     <span
                       className={cn(
                         "inline-flex rounded-md border px-2 py-0.5 text-xs font-medium",
-                        getEmailVerified(user)
+                        getUserEmailVerified(user)
                           ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
                           : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
                       )}
                     >
-                      {getEmailVerified(user) ? "Verified" : "Unverified"}
+                      {getUserEmailVerified(user) ? "Verified" : "Unverified"}
                     </span>
                   </TableCell>
                   <TableCell>
@@ -189,7 +179,7 @@ export const UsersList = () => {
                     </span>
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-muted-foreground">
-                    {formatDate(getCreatedAt(user))}
+                    {formatDate(getUserCreatedAt(user))}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button
